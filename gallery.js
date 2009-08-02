@@ -14,7 +14,7 @@ Function.prototype.anbindEv = function() {
   for( var i = 0, len = arguments.length; i < len; ++i ) { args.push(arguments[i]); }
   var object = args.shift();
   var method = this;
-  return function() {
+  return function(event) {
     var _args = [];
     for( var i = 0, len = arguments.length; i < len; ++i ) { _args.push(arguments[i]); }
     return method.apply(object, [event || window.event].concat(args.concat(_args)));
@@ -42,24 +42,31 @@ AN.Gallery.prototype = {
     }
   },
   _imageReady: function(i) {
-    if( --this._imagesPending == 0 ) { this._render(); this._events(); }
+    if( --this._imagesPending == 0 ) { this._prepare(); this._render(); this._events(); }
   },
-  _render: function() {
+  _prepare: function() {
     var img = Sizzle('img', this.el)[0];
     var canvas = document.createElement("canvas");
     canvas.setAttribute("width", img.width );
     canvas.setAttribute("height", img.height );
     this.canvas = canvas;
+    this.images.unshift(img); // XXX: Image vs DOMImageElement - hopefully canvas drawImage accepts either?
     this.el.removeChild(img);
     this.el.appendChild(canvas);
+
     this.ctx = canvas.getContext("2d");
+  },
+  _render: function(img) {
+    
+    if( !img ) { img = this.images[0]; }
+
     this.ctx.drawImage(img, 0, 0, img.width, img.height);
 
     this.clips = []; // the original clip graphics before converting, so on hover we can flip them back
     this.hits = []; // the clip hit areas, so on mouse events we can detect which clip to show
     this.activeClip = null;
 
-    var offset = 620;
+    var offset = 600;
     for( var i = 0, len = this.images.length; i < len; ++i ) {
       var ox = offset+(i*83);
       var img = this.images[i];
@@ -98,7 +105,6 @@ AN.Gallery.prototype = {
     }
 
     this.ctx.putImageData(cd, ix, iy);
-
     return {x: ix, odata: odata, bwdata: cd.data}; // save for later
   },
   _copy: function(cd,ndata) {
@@ -139,42 +145,49 @@ AN.Gallery.prototype = {
       }
     }
 
-    if( hitIdx == this.activeClip ) {
-      return;
-    }
+    if( hitIdx == null ) { return; }
 
-    if( hitIdx != null ) {
-      var cdata, cd;
-      console.log("hit: " + hitIdx);
-      // unset active clip
-      if( this.activeClip != null ) {
-        console.log("clear");
-        cdata = this.clips[this.activeClip];
-        cd = this.ctx.getImageData(cdata.x, this.canvasOffset, this.width, this.height);
-        this._copy(cd,cdata.bwdata);
-        this.ctx.putImageData(cd, cdata.x, this.canvasOffset);
-      }
-      cdata = this.clips[hitIdx];
-      cd = this.ctx.getImageData(cdata.x, this.canvasOffset, this.width, this.height);
-      this._copy(cd,cdata.odata);
-      this.ctx.putImageData(cd, cdata.x, this.canvasOffset);
-      this.activeClip = hitIdx;
-    }
-    else if( this.activeClip != null ) {
-      // unset active clips
-      var cdata = this.clips[this.activeClip];
-      var cd = this.ctx.getImageData(cdata.x, this.canvasOffset, this.width, this.height);
-      this._copy(cd,cdata.bwdata);
-      this.ctx.putImageData(cd, cdata.x, this.canvasOffset);
-      this.activeClip = null;
-    }
 
     switch( type ) {
     case 'mousemove':
+      if( hitIdx == this.activeClip ) {
+        return;
+      }
+
+      if( hitIdx != null ) {
+        var cdata, cd;
+        //console.log("hit: " + hitIdx);
+        // unset active clip
+        if( this.activeClip != null ) {
+          cdata = this.clips[this.activeClip];
+          cd = this.ctx.getImageData(cdata.x, this.canvasOffset, this.width, this.height);
+          this._copy(cd,cdata.bwdata);
+          this.ctx.putImageData(cd, cdata.x, this.canvasOffset);
+        }
+        cdata = this.clips[hitIdx];
+        cd = this.ctx.getImageData(cdata.x, this.canvasOffset, this.width, this.height);
+        this._copy(cd,cdata.odata);
+        this.ctx.putImageData(cd, cdata.x, this.canvasOffset);
+        this.activeClip = hitIdx;
+      }
+      else if( this.activeClip != null ) {
+        // unset active clips
+        var cdata = this.clips[this.activeClip];
+        var cd = this.ctx.getImageData(cdata.x, this.canvasOffset, this.width, this.height);
+        this._copy(cd,cdata.bwdata);
+        this.ctx.putImageData(cd, cdata.x, this.canvasOffset);
+        this.activeClip = null;
+      }
       break;
     case 'mousedown':
+      this.downOnIdx = hitIdx;
       break;
     case 'mouseup':
+      if( hitIdx == this.downOnIdx ) {
+        this._render(this.images[this.downOnIdx]);
+        console.log("show idx: " + this.downOnIdx);
+      }
+      this.downOnIdx = null;
       break;
     }
   }
